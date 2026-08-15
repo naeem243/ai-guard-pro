@@ -1,3 +1,4 @@
+from config import BOT_TOKEN, CHAT_ID
 #!/usr/bin/env python3
 """
 AI Guard Pro — COMPLETE Main File (FIXED VERSION)
@@ -20,7 +21,7 @@ from sklearn.preprocessing import StandardScaler
 import joblib
 
 # ========== CONFIG ==========
-BOT_TOKEN = "8830379998:AAGI8dY_bRjPJ2bRzCdoX9hJJwl2KK3JaJE"
+# BOT_TOKEN = "8830379998:AAGI8dY_bRjPJ2bRzCdoX9hJJwl2KK3JaJE"
 CHAT_ID = "7945236933"
 
 PORT_SCAN_THRESHOLD = 5

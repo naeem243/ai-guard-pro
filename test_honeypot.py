@@ -1,3 +1,4 @@
+from config import BOT_TOKEN, CHAT_ID
 #!/usr/bin/env python3
 import socket
 import threading
@@ -5,7 +6,7 @@ import requests
 import subprocess
 from datetime import datetime
 
-BOT_TOKEN = "8830379998:AAGI8dY_bRjPJ2bRzCdoX9hJJwl2KK3JaJE"
+# BOT_TOKEN = "8830379998:AAGI8dY_bRjPJ2bRzCdoX9hJJwl2KK3JaJE"
 CHAT_ID = "7945236933"
 
 def block_ip(ip):
