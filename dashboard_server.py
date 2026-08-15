@@ -4,11 +4,11 @@ import subprocess
 import os
 import json
 import urllib.request
+import re
 from datetime import datetime
 
 app = Flask(__name__)
 
-# Pi-hole API endpoint
 PIHOLE_API = "http://127.0.0.1/admin/api.php?summaryRaw&topItems&getQuerySources&topClients"
 
 HTML = """
@@ -25,7 +25,7 @@ HTML = """
         .header p{color:#e0e0ff;margin:8px 0 0;font-size:16px}
         .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:18px;margin-bottom:25px}
         .stat{background:#13132b;padding:22px;border-radius:14px;text-align:center;border:1px solid #252550;box-shadow:0 4px 20px rgba(0,0,0,.2)}
-        .stat h2{margin:0;font-size:36px;color:#00ff88;text-shadow:0 0 10px rgba(0,255,136,.3)}
+        .stat h2{margin:0;font-size:34px;color:#00ff88;text-shadow:0 0 10px rgba(0,255,136,.3)}
         .stat p{margin:8px 0 0;color:#a0a0c0;font-size:14px}
         .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:22px}
         @media(max-width:950px){.grid-2{grid-template-columns:1fr}}
@@ -49,44 +49,21 @@ HTML = """
     </div>
 
     <div class="stats">
-        <div class="stat">
-            <h2>{{ total_attacks }}</h2>
-            <p>🚨 Total Attacks</p>
-        </div>
-        <div class="stat">
-            <h2>{{ blocked_ips }}</h2>
-            <p>🚫 Blocked IPs</p>
-        </div>
-        <div class="stat">
-            <h2>{{ honeypot_ports }}</h2>
-            <p>🍯 Trap Ports</p>
-        </div>
-        <div class="stat">
-            <h2>{{ pihole_queries }}</h2>
-            <p>📊 DNS Queries Today</p>
-        </div>
-        <div class="stat">
-            <h2>{{ pihole_blocked }}</h2>
-            <p>🚫 Ads/Malware Blocked</p>
-        </div>
-        <div class="stat">
-            <h2>{{ pihole_percent }}%</h2>
-            <p>📉 Block Percentage</p>
-        </div>
+        <div class="stat"><h2>{{ total_attacks }}</h2><p>🚨 Total Attacks</p></div>
+        <div class="stat"><h2>{{ blocked_ips }}</h2><p>🚫 Blocked IPs</p></div>
+        <div class="stat"><h2>{{ honeypot_ports }}</h2><p>🍯 Trap Ports</p></div>
+        <div class="stat"><h2>{{ pihole_queries }}</h2><p>📊 DNS Queries Today</p></div>
+        <div class="stat"><h2>{{ pihole_blocked }}</h2><p>🚫 Ads/Malware Blocked</p></div>
+        <div class="stat"><h2>{{ pihole_percent }}%</h2><p>📉 Block Percentage</p></div>
     </div>
 
     <div class="grid-2">
         <div class="section">
-            <h2>🍯 Recent Honeypot Attacks</h2>
+            <h2>🍯 Recent Attacks</h2>
             <table>
-                <tr><th>Time</th><th>Attacker IP</th><th>Port</th><th>Action</th></tr>
+                <tr><th>Time</th><th>Attacker IP</th><th>Type</th><th>Action</th></tr>
                 {% for a in attacks %}
-                <tr>
-                    <td>{{ a.time }}</td>
-                    <td>{{ a.ip }}</td>
-                    <td>{{ a.port }}</td>
-                    <td class="blocked">{{ a.action }}</td>
-                </tr>
+                <tr><td>{{ a.time }}</td><td>{{ a.ip }}</td><td>{{ a.port }}</td><td class="blocked">{{ a.action }}</td></tr>
                 {% endfor %}
                 {% if not attacks %}
                 <tr><td colspan="4" style="text-align:center;color:#888;padding:20px">No attacks yet. Honeypot is waiting...</td></tr>
@@ -145,11 +122,7 @@ HTML = """
         <table>
             <tr><th>#</th><th>Device IP / Name</th><th>Queries</th></tr>
             {% for client in top_clients %}
-            <tr>
-                <td>{{ loop.index }}</td>
-                <td>{{ client.name or client.ip }}</td>
-                <td>{{ client.count }}</td>
-            </tr>
+            <tr><td>{{ loop.index }}</td><td>{{ client.name or client.ip }}</td><td>{{ client.count }}</td></tr>
             {% endfor %}
             {% if not top_clients %}
             <tr><td colspan="3" style="text-align:center;color:#888;padding:15px">Pi-hole client data loading...<br>Router DNS set to Pi-hole?</td></tr>
@@ -165,12 +138,8 @@ HTML = """
 """
 
 def get_pihole_data():
-    """Fetch Pi-hole API data"""
     try:
-        req = urllib.request.Request(
-            PIHOLE_API,
-            headers={'Accept': 'application/json'}
-        )
+        req = urllib.request.Request(PIHOLE_API, headers={'Accept': 'application/json'})
         with urllib.request.urlopen(req, timeout=5) as response:
             return json.loads(response.read().decode())
     except Exception as e:
@@ -178,7 +147,6 @@ def get_pihole_data():
         return {}
 
 def get_blocked_ips():
-    """Get IPs blocked by iptables"""
     ips = []
     try:
         result = subprocess.run(["iptables", "-L", "-n"], capture_output=True, text=True)
@@ -187,41 +155,69 @@ def get_blocked_ips():
                 parts = line.split()
                 if len(parts) >= 4 and parts[3] not in ["0.0.0.0/0", "anywhere"]:
                     ips.append(parts[3])
-    except Exception as e:
-        print(f"[DASHBOARD] iptables error: {e}")
+    except:
+        pass
     return list(set(ips))
 
 def parse_attacks_from_log(filepath):
-    """Parse attack entries from log files"""
     attacks = []
     try:
         with open(filepath, "r") as f:
             lines = f.readlines()
         for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            time = datetime.now().strftime("%H:%M:%S")
+            ip = None
+            port = "Unknown"
+            action = "BLOCKED"
+            
+            # Pattern 1: Honeypot log - "ATTACKER: IP on port X"
             if "ATTACKER:" in line:
-                time = datetime.now().strftime("%H:%M:%S")
-                ip = "Unknown"
-                port = "Unknown"
                 parts = line.split()
                 for i, p in enumerate(parts):
                     if p == "ATTACKER:":
-                        ip = parts[i+1] if i+1 < len(parts) else "Unknown"
+                        ip = parts[i+1] if i+1 < len(parts) else None
                     if p == "port":
-                        port = parts[i+1] if i+1 < len(parts) else "Unknown"
-                attacks.append({"time": time, "ip": ip, "port": port, "action": "BLOCKED"})
+                        port = parts[i+1].rstrip(".") if i+1 < len(parts) else "Unknown"
+                if ip:
+                    attacks.append({"time": time, "ip": ip, "port": port, "action": action})
+            
+            # Pattern 2: AI Guard log - port scan, ping flood, etc.
+            # Look for IP addresses in lines with attack keywords
+            elif any(k in line.upper() for k in ["SCAN", "ATTACK", "FLOOD", "BRUTE", "ALERT", "[!]"]):
+                # Extract IP from line using regex
+                ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', line)
+                if ip_match:
+                    ip = ip_match.group(0)
+                    # Determine attack type
+                    if "SCAN" in line.upper() or "PORT" in line.upper():
+                        port = "Port Scan"
+                    elif "PING" in line.upper() or "FLOOD" in line.upper():
+                        port = "Ping Flood"
+                    elif "BRUTE" in line.upper():
+                        port = "Brute Force"
+                    else:
+                        port = "Suspicious"
+                    attacks.append({"time": time, "ip": ip, "port": port, "action": action})
     except:
         pass
     return attacks
 
 def get_attacks():
-    """Get all attacks from all log files"""
     attacks = []
-    if os.path.exists("/var/log/honeypot.log"):
-        attacks.extend(parse_attacks_from_log("/var/log/honeypot.log"))
-    if os.path.exists("/var/log/ai-guard-alerts.log"):
-        attacks.extend(parse_attacks_from_log("/var/log/ai-guard-alerts.log"))
+    log_files = [
+        "/var/log/honeypot.log",
+        "/var/log/ai-guard-alerts.log",
+        "/var/log/ai-guard.log"
+    ]
+    for log_file in log_files:
+        if os.path.exists(log_file):
+            attacks.extend(parse_attacks_from_log(log_file))
     
-    # Remove duplicates while preserving order
+    # Remove duplicates while preserving order (newest first)
     seen = set()
     unique = []
     for a in reversed(attacks):
@@ -229,32 +225,17 @@ def get_attacks():
         if key not in seen:
             seen.add(key)
             unique.append(a)
-    return list(reversed(unique[-20:]))
+    return list(reversed(unique[-30:]))
 
 @app.route("/")
 def dashboard():
-    # AI Guard data
     attacks = get_attacks()
     blocked_ips_list = get_blocked_ips()
-    
-    # Check honeypot status
     hp = subprocess.run(["pgrep", "-f", "honeypot"], capture_output=True)
-    honeypot_online = hp.returncode == 0
-
-    # Pi-hole data
+    
     pihole = get_pihole_data()
-
-    # Parse Pi-hole top queries (allowed domains)
-    top_queries = []
-    if pihole and "top_queries" in pihole:
-        top_queries = list(pihole["top_queries"].items())[:10]
-
-    # Parse Pi-hole top ads (blocked domains)
-    top_ads = []
-    if pihole and "top_ads" in pihole:
-        top_ads = list(pihole["top_ads"].items())[:10]
-
-    # Parse Pi-hole top clients (devices)
+    top_queries = list(pihole.get("top_queries", {}).items())[:10] if pihole else []
+    top_ads = list(pihole.get("top_ads", {}).items())[:10] if pihole else []
     top_clients = []
     if pihole and "top_sources" in pihole:
         for ip, count in list(pihole["top_sources"].items())[:10]:
