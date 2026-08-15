@@ -1,0 +1,10 @@
+[Unit]
+Description="Regenerate pre-generated snakeoil certificate and key-pair once"
+ConditionPathExists=/etc/ssl/certs/ssl-cert-snakeoil.pem
+ConditionFirstBoot=yes
+Wants=first-boot-complete.target
+Before=first-boot-complete.target
+
+[Service]
+Type=oneshot
+ExecStart=make-ssl-cert -f generate-default-snakeoil

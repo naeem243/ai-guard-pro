@@ -1,0 +1,13 @@
+[Unit]
+Description=Honeypot Trap Service
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /root/test_honeypot.py
+Restart=always
+User=root
+StandardOutput=append:/var/log/honeypot.log
+StandardError=append:/var/log/honeypot.log
+
+[Install]
+WantedBy=multi-user.target

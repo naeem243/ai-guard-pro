@@ -1,0 +1,14 @@
+[Unit]
+Description=AI Guard Pro Dashboard
+After=network-online.target ai-guard-pro.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+ExecStart=/usr/bin/python3 /root/dashboard_server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
